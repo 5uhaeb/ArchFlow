@@ -24,6 +24,8 @@
 #zoom{left:144px;right:200px;max-width:none;bottom:12px;width:max-content;max-width:calc(100% - 352px)}
 #legend{bottom:146px}.reference-legend{bottom:190px}
 .settings [hidden]{display:none!important}
+.ai-instructions{display:block;width:100%;min-height:90px;resize:vertical;padding:8px;background:var(--editor);color:var(--text);border:1px solid var(--border);font:inherit}.settings label{max-width:100%;flex-wrap:wrap}.settings input,.settings select{max-width:100%}#aiState{overflow-wrap:anywhere;max-width:100%}#log{flex-shrink:0;overflow-wrap:anywhere}.reference-legend{right:200px}#zoom button{white-space:nowrap}
+.folder-node .toggle,.workspace-node .toggle{opacity:1}
 @media(max-width:700px){#zoom{left:144px;right:8px;max-width:calc(100% - 160px)}#minimap{display:none}.reference-legend{bottom:220px}#legend{bottom:170px}}
 /* Architecture-board styling follows the supplied visual reference. */
 [data-theme=dark]{--canvas:#0e0e0f;--bg:#131415;--panel:#191b1f;--text:#e9e9ec;--border:#626d7e;--title:#426ea6;--select:#29354b;--editor:#151619;--wire:#9a9da4}

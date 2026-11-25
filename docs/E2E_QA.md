@@ -1,0 +1,9 @@
+# TODO workspace UI verification
+
+The real UI was exercised in headless Microsoft Edge (Chromium), using a temporary workspace outside this repository and the local app on port 8765. The Open button was clicked; only the native OS picker boundary returned the temporary directory programmatically. The OS dialog itself was not automated.
+
+Passed: inline folder/file creation, starter edits and Save, double-click details and editor opening, synchronized long-line/vertical editor scrolling, theme switching, plain-wheel pan, Ctrl-wheel zoom, port drag/click connections, Delete/undo, Escape cancellation, AI task input, preview/Apply, and generated TODO add/complete/delete in a second browser page. No JavaScript page errors occurred. Overflow and trash/zoom intersection checks passed at viewport widths 1400, 700 and 480 pixels. These checks cover the exercised states, not every possible layout.
+
+Live Gemini model discovery succeeded with the replacement temporary credential. Both requested gemini-2.0-flash and catalog-listed gemini-2.5-flash generation returned HTTP 404; gemini-3.8-flash and gemini-flash-latest returned HTTP 503. Generation succeeded with gemini-3.5-flash-lite. After initial mock-provider coverage, a complete separate live run created all three files via the UI, generated and applied each target through Run Wiring, and verified adding, completing and deleting TODOs in a second browser page. One live request returned HTTP 503 and succeeded on explicit retry. No credential or generated TODO project was saved in the repository.
+
+Regression verification: Python compilation, Ruff, 14 backend tests, and the existing real browser regression suite passed. New regressions cover click wiring, cancellation, complete multi-part Gemini responses, rejection of truncated responses, and non-writing constraint previews. A single 1000-node render measured 69 ms; this is not a sustained frame-rate measurement.

@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 import workspace_graph as wg
-from ai_engine import ask_ai, guard_update
+from ai_engine import ask_ai, available_models, guard_update
 from workspace_safety import text
 
 ROOT = Path(__file__).resolve().parent
@@ -43,7 +43,7 @@ async def session_security(request, call_next):
 class Folder(BaseModel): path: str
 class FileEdit(BaseModel): folder: str; name: str; content: str = ""
 class Edge(BaseModel): folder: str; source: str; target: str
-class AIJob(Edge): api_key: str; model: str; constraint: str; provider: str = "OpenAI"; base_url: str = ""
+class AIJob(Edge): api_key: str; model: str; constraint: str; provider: str = "OpenAI"; base_url: str = ""; instructions: str = ''
 PROPOSALS: dict[str, tuple[Path, str, str, str]] = {}
 UNDO: dict[str, tuple[str, str]] = {}
 
@@ -55,6 +55,8 @@ def apply_ai(body: Approval):
     data = PROPOSALS.pop(body.proposal, None)
     if data is None: raise HTTPException(409,'Proposal expired. Generate another preview.')
     path, original, proposed, constraint = data
+    if ACTIVE_ROOT is None or not path.is_relative_to(ACTIVE_ROOT):
+        raise HTTPException(409, 'The workspace changed. Generate a preview in the active workspace.')
     if text(path) != original: raise HTTPException(409,'Target changed after preview. Generate another preview.')
     result = guard_update(path, proposed, constraint)
     if result['written']: UNDO[str(path)] = (original, proposed)
@@ -163,6 +165,15 @@ def assist(body: AIAssist):
         return {'text':answer}
     except ValueError as exc: raise HTTPException(400,str(exc)) from None
     except TypeError: raise HTTPException(400,'Provider returned malformed data.') from None
+
+@app.post('/api/models')
+def models(body: AIAssist):
+    if body.provider != 'Gemini':
+        raise HTTPException(400, 'Live model discovery currently supports Gemini.')
+    try:
+        return {'models': available_models(body.api_key)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
 @app.post("/api/files")
 def files(body: Folder):
     folder = project(body.path, opening=True)
@@ -214,13 +225,13 @@ def ai(body: AIJob):
     folder = project(body.folder); source = body.source; target = body.target; safe_name(folder, source); safe_name(folder, target)
     if not (folder/source).is_file() or not (folder/target).is_file(): raise HTTPException(400, "AI wiring requires two files, not folders.")
     try:
-        proposed, rationale = ask_ai(source, (folder/source).read_text(encoding="utf-8"), target, (folder/target).read_text(encoding="utf-8"), body.constraint, body.api_key, body.model, body.provider, body.base_url)
-        result = guard_update(folder / target, proposed, 'SUGGEST_ONLY')
+        proposed, rationale = ask_ai(source, text(folder/source), target, text(folder/target), body.constraint, body.api_key, body.model, body.provider, body.base_url, request_notes=body.instructions)
+        result = guard_update(folder / target, proposed, body.constraint, write=False)
         token = secrets.token_urlsafe(24)
-        if body.constraint != 'SUGGEST_ONLY':
+        if body.constraint != 'SUGGEST_ONLY' and result['ok']:
             if len(PROPOSALS)>=20: PROPOSALS.clear()
             PROPOSALS[token] = (folder/target,text(folder/target),proposed,body.constraint)
-        return {**result, 'proposal': token if body.constraint != 'SUGGEST_ONLY' else None, "rationale": rationale}
+        return {**result, 'proposal': token if body.constraint != 'SUGGEST_ONLY' and result['ok'] else None, "rationale": result.get('error', rationale)}
     except ValueError as exc: raise HTTPException(400, str(exc))
 
 def run(): uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
