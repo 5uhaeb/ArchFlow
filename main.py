@@ -42,8 +42,8 @@ class Folder(BaseModel): path: str
 class FileEdit(BaseModel): folder: str; name: str; content: str = ""
 class Edge(BaseModel): folder: str; source: str; target: str
 class AIJob(Edge): api_key: str; model: str; constraint: str; provider: str = "OpenAI"; base_url: str = ""
-PROPOSALS = {}
-UNDO = {}
+PROPOSALS: dict[str, tuple[Path, str, str, str]] = {}
+UNDO: dict[str, tuple[str, str]] = {}
 
 class Approval(BaseModel):
     proposal: str
