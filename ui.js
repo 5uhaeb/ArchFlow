@@ -6,7 +6,7 @@ function checkpoint(){history.push(structuredClone(graph.edges));if(history.leng
 function commitEdges(){graph.edges=[...new Map(graph.edges.map(e=>{e.id=edgeKey(e);return[e.id,e]})).values()];render();persist()}
 function undoGraph(){if(!history.length)return;future.push(structuredClone(graph.edges));graph.edges=history.pop();wireSelected=null;commitEdges();notice('Connection change undone')}
 function redoGraph(){if(!future.length)return;history.push(structuredClone(graph.edges));graph.edges=future.pop();wireSelected=null;commitEdges();notice('Connection change redone')}
-function notice(message){status.textContent=message;log(message)}
+function notice(message){status.firstChild.textContent=message;log(message)}
 const status=element('div','status-line',document.body);status.setAttribute('role','status');status.textContent='Open a folder → double-click a node → drag a port → run AI';
 const saved=element('span','save-state',status);saved.textContent='Saved';
 const oldPersist=persist;persist=()=>{saved.textContent='Saving…';oldPersist()};
