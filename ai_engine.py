@@ -58,6 +58,10 @@ Constraint: {constraint}. Return ONLY the complete proposed target file in its o
             if not isinstance(answer, str): raise TypeError('Provider did not return text.')
     except urllib.error.HTTPError as exc:
         message = "Rate limit or API quota reached." if exc.code == 429 else "API key was rejected or does not have access." if exc.code in {401, 403} else f"Provider returned HTTP {exc.code}."
+        if exc.code == 404:
+            message = f"{provider}: model '{model}' was not found or is unavailable for this API key. Choose another model."
+            if provider == 'Custom':
+                message += ' Also check the custom API base URL.'
         raise ValueError(message) from None
     except (urllib.error.URLError, KeyError, IndexError, TypeError, UnicodeError, TimeoutError, OSError, json.JSONDecodeError):
         raise ValueError('Provider request failed or returned malformed data. Check connectivity and provider settings.') from None

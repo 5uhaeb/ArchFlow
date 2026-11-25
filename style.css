@@ -20,6 +20,11 @@
 #svg{z-index:0}#nodes{position:absolute;inset:0;pointer-events:none}.node{pointer-events:auto}#zoom{z-index:6;flex-wrap:wrap;max-width:calc(100% - 210px)}
 #trash{position:absolute;left:16px;bottom:16px;z-index:12;width:112px;height:112px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:2px solid #8b3434;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 2px 8px #0004}.trash-hot{background:#7c1717!important;color:#fff!important;border-color:#ff7777!important;transform:scale(1.05)}#trash span{font-size:45px;line-height:46px;filter:grayscale(.15)}#trash b{font-size:13px}#trash small{opacity:.75}
 .delete-confirm{position:fixed;z-index:120;inset:0;display:grid;place-items:center;background:#0009}.delete-card{width:min(430px,92vw);padding:18px;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:0 18px 50px #0008}.delete-card h2{margin-top:0}.delete-card label{display:block;margin:10px 0;padding:8px;border:1px solid transparent}.delete-card label:has(input:checked){border-color:#a04545;background:var(--select)}.delete-card .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.delete-card .danger{background:#8b2626;color:#fff;border-color:#d75a5a}
+/* Reserve separate lanes for deletion, navigation, and connection controls. */
+#zoom{left:144px;right:200px;max-width:none;bottom:12px;width:max-content;max-width:calc(100% - 352px)}
+#legend{bottom:146px}.reference-legend{bottom:190px}
+.settings [hidden]{display:none!important}
+@media(max-width:700px){#zoom{left:144px;right:8px;max-width:calc(100% - 160px)}#minimap{display:none}.reference-legend{bottom:220px}#legend{bottom:170px}}
 /* Architecture-board styling follows the supplied visual reference. */
 [data-theme=dark]{--canvas:#0e0e0f;--bg:#131415;--panel:#191b1f;--text:#e9e9ec;--border:#626d7e;--title:#426ea6;--select:#29354b;--editor:#151619;--wire:#9a9da4}
 #canvas{background-image:none;border-radius:12px;margin:8px 0 8px 8px;border:1px solid var(--border)}
