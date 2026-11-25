@@ -1,6 +1,8 @@
 /* Stable identity, history, details and discovery layered over existing workspace. */
 const edgeKey=e=>JSON.stringify([e.source.replaceAll('\\','/').replace(/^\.\//,''),e.target.replaceAll('\\','/').replace(/^\.\//,''),e.type||'other']);
 const selectedEdge=()=>graph.edges.find(e=>(e.id||edgeKey(e))===wireSelected);
+function connectionType(name){return ({py:'python',js:'javascript',mjs:'javascript',ts:'javascript',html:'html',htm:'html',css:'css',json:'config',yaml:'config',toml:'config',sql:'database'})[name.split('.').pop().toLowerCase()]||'other'}
+$('edgeType').prepend(new Option('Auto (target file type)',''));$('edgeType').value='';
 const history=[],future=[];let detailsName=null;
 function checkpoint(){history.push(structuredClone(graph.edges));if(history.length>50)history.shift();future.length=0}
 function commitEdges(){graph.edges=[...new Map(graph.edges.map(e=>{e.id=edgeKey(e);return[e.id,e]})).values()];render();persist()}
@@ -13,7 +15,7 @@ const oldPersist=persist;persist=()=>{saved.textContent='Saving…';oldPersist()
 const oldFlush=flush;flush=async()=>{try{await oldFlush();saved.textContent='Saved'}catch(error){saved.textContent='Not saved';throw error}};
 function edgeMap(){return new Map(graph.edges.map(e=>{e.id=edgeKey(e);return[e.id,e]}))}
 const originalRender=render;render=()=>{edgeMap();originalRender();if(detailsName!==null)openDetails(detailsName)};
-complete=target=>{if(!target||!wireStart||target.name===wireStart.name)return;let e={source:wireStart.name,target:target.name,source_port:wireStart.side,target_port:target.side,type:$('edgeType').value||'other',origin:'manual',suppressed:false};let existing=edgeMap().get(edgeKey(e));if(existing){wireSelected=existing.id;if(existing.suppressed){checkpoint();existing.suppressed=false;existing.origin=existing.origin==='auto'?'both':existing.origin;commitEdges()}else{drawWires();notice('Connection already exists — selected')}}else{checkpoint();graph.edges.push(e);wireSelected=edgeKey(e);commitEdges()}};
+complete=target=>{if(!target||!wireStart||target.name===wireStart.name)return;let e={source:wireStart.name,target:target.name,source_port:wireStart.side,target_port:target.side,type:$('edgeType').value||connectionType(target.name),origin:'manual',suppressed:false};let existing=edgeMap().get(edgeKey(e));if(existing){wireSelected=existing.id;if(existing.suppressed){checkpoint();existing.suppressed=false;existing.origin=existing.origin==='auto'?'both':existing.origin;commitEdges()}else{drawWires();notice('Connection already exists — selected')}}else{checkpoint();graph.edges.push(e);wireSelected=edgeKey(e);commitEdges()}};
 removeWire=()=>{let e=selectedEdge();if(!e)return;checkpoint();if(e.origin==='auto'||e.origin==='both'){e.origin='auto';e.suppressed=true}else graph.edges=graph.edges.filter(item=>item!==e);wireSelected=null;hovered=null;pinned=false;$('inspector').hidden=true;commitEdges();notice('Connection removed — Ctrl+Z to undo')};
 function selectWire(id){wireSelected=id;hovered=null;pinned=false;$('inspector').hidden=true;drawWires()}
 drawWires=()=>{$('wires').replaceChildren();for(let [id,e] of edgeMap()){let a=portPoint(e.source,e.source_port),b=portPoint(e.target,e.target_port);if(!a||!b)continue;let g=document.createElementNS(NS,'g');g.dataset.edgeId=id;$('wires').append(g);let p=svgPath(route(a,b,e.source_port,e.target_port),'wire '+(e.origin==='auto'?'auto':'manual')+(wireSelected===id?' active':'')+(e.suppressed?' suppressed':''),g);p.style.stroke=TYPES[e.type]?.[1]||TYPES.other[1];p.setAttribute('marker-end','url(#arrow)');p.setAttribute('tabindex','0');p.setAttribute('role','button');p.setAttribute('aria-label',`${e.source} to ${e.target}, ${e.type}, ${e.origin}`);let title=document.createElementNS(NS,'title');title.textContent=`${e.source} → ${e.target} • ${e.type} • ${e.origin}${e.suppressed?' (suppressed)':''}`;p.append(title);p.onclick=event=>{event.stopPropagation();selectWire(id)};p.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();selectWire(id)}};p.oncontextmenu=event=>{event.preventDefault();event.stopPropagation();selectWire(id);showMenu(event,e)}}highlightRelationships()};
@@ -40,7 +42,7 @@ button($('toolbar'),'AI',()=>openAi());button($('toolbar'),'Commands',openPalett
 for(let control of $('toolbar').querySelectorAll('button,input,select'))if(!control.title)control.title=control.textContent.trim()||control.placeholder||control.id;
 $('constraint').selectedOptions[0].textContent='Keep every existing code line';$('constraint').title='Existing nonblank lines must remain in order. Only additions and trailing-whitespace changes are allowed.';
 $('run').title='Update the selected connection target with AI; preview and Apply required.';$('enableAi').title='Enable requests with these credentials. This does not validate the key until a request runs.';
-$('applyType').onclick=()=>{let e=selectedEdge();if(!e)return;checkpoint();e.type=$('edgeType').value;e.origin='manual';commitEdges()};
+$('applyType').onclick=()=>{let e=selectedEdge();if(!e)return;checkpoint();e.type=$('edgeType').value||connectionType(e.target);e.origin='manual';commitEdges()};
 // Hover uses full paths; selection remains authoritative even if hover was pinned.
 const oldInspect=inspect;inspect=name=>{oldInspect(name);let heading=$('inspector').querySelector('b');if(heading)heading.textContent=(name||'Workspace')+' — Functional connections';button($('inspector'),'Open details',()=>openDetails(name));highlightRelationships()};
 $('log').hidden=true;
@@ -53,9 +55,26 @@ const oldApply=api;api=async(path,data)=>{try{return await oldApply(path,data)}c
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('editorModal').hidden)$('closeEditor').click()});
 $('enableAi').title='Send one small provider request to validate the selected key and model.';
 MODEL_OPTIONS.CodexLocal=['gpt-6.1-terra'];$('provider').add(new Option('Local Codex (VS Code)','CodexLocal'));
+MODEL_OPTIONS.OpenAI.unshift('gpt-6.1-terra');if($('provider').value==='OpenAI')updateModels();
 const updateKeyButton=updateAiButton;updateAiButton=()=>{if($('provider').value==='CodexLocal'){$('enableAi').disabled=false;return}updateKeyButton()};
 $('provider').addEventListener('change',()=>{const local=$('provider').value==='CodexLocal';$('key').closest('label').hidden=local;$('key').disabled=local;updateAiButton();if(local)$('aiState').textContent='Uses your Codex ChatGPT login. Click Enable AI.'});
 const enableRemote=$('enableAi').onclick;$('enableAi').onclick=safeAction(async()=>{if($('provider').value!=='CodexLocal')return enableRemote();$('enableAi').disabled=true;aiEnabled=false;$('run').disabled=true;try{await assistRequest('validate');aiEnabled=true;$('run').disabled=false;$('aiState').textContent='Local Codex ready — GPT-6.1 Terra';notice('Local Codex connected')}finally{$('enableAi').disabled=false}});
-const showAiPanel=openAi;openAi=(edge={})=>{showAiPanel(edge);let notes=element('textarea','ai-instructions',aiPanel);notes.id='aiInstructions';notes.placeholder='Describe the change to make in the target file';notes.setAttribute('aria-label','AI instructions');aiPanel.querySelector('h2').after(notes)};
-const requestApi=api;api=(path,data)=>{if(path==='ai'){if(dirty())return Promise.reject(new Error('Save your editor changes before generating AI changes.'));data={...data,instructions:$('aiInstructions')?.value||''}}return requestApi(path,data).then(result=>{if(path==='ai'&&!result.ok)showApiError((result.error||'Constraint rejected the proposed code.')+' Adjust the task and generate another preview.');return result})};
+const showAiPanel=openAi;openAi=(edge={})=>{proposalGeneration++;showAiPanel(edge);let notes=element('textarea','ai-instructions',aiPanel);notes.id='aiInstructions';notes.placeholder='Describe the change to make in the target file';notes.setAttribute('aria-label','AI instructions');aiPanel.querySelector('h2').after(notes)};
+let proposalGeneration=0;
+function clearAiReview(){aiPanel.querySelectorAll('.ai-result').forEach(n=>n.remove());for(let b of aiPanel.querySelectorAll('button'))if(['Apply','Discard'].includes(b.textContent))b.remove()}
+aiPanel.addEventListener('input',()=>{proposalGeneration++;clearAiReview()});
+for(let id of ['provider','model','key','base','constraint'])$(id).addEventListener('change',()=>{proposalGeneration++;clearAiReview()});
+const requestApi=api;api=(path,data)=>{
+    let generation=proposalGeneration;
+    if(path==='ai'){
+        if(dirty())return Promise.reject(new Error('Save your editor changes before generating AI changes.'));
+        clearAiReview();data={...data,instructions:$('aiInstructions')?.value||''};
+    }
+    return requestApi(path,data).then(result=>{
+        if(path==='ai'&&(generation!==proposalGeneration||data.folder!==folder()))result={...result,ok:false,proposal:null,error:'Settings changed during generation. Generate a new preview.'};
+        if(path==='ai'&&!result.ok)showApiError((result.error||'Constraint rejected the proposed code.')+' Adjust the task and generate another preview.');
+        if(path==='ai/apply'&&result.written)clearAiReview();
+        return result;
+    });
+};
 const refreshModels=button(document.querySelector('.settings'),'Load Gemini models',async()=>{let d=await api('models',{action:'validate',api_key:$('key').value,model:$('model').value,provider:$('provider').value});let previous=$('model').value;$('model').replaceChildren(...d.models.map(name=>new Option(name,name)));if(d.models.includes(previous))$('model').value=previous;aiEnabled=false;$('run').disabled=true;$('aiState').textContent='Model list updated. Choose a model and enable AI.'});refreshModels.id='refreshModels';refreshModels.hidden=$('provider').value!=='Gemini';$('provider').addEventListener('change',()=>refreshModels.hidden=$('provider').value!=='Gemini');

@@ -39,7 +39,8 @@ function updateCounts(){for(let [name,n] of nodeMap)for(let port of n.querySelec
 function route(a,b,sourceSide='bottom',targetSide='top'){
 const stub=(p,side)=>({x:p.x+(side==='left'?-20:side==='right'?20:0),y:p.y+(side==='top'?-20:side==='bottom'?20:0)});
 const s=stub(a,sourceSide),t=stub(b,targetSide),horizontal=side=>side==='left'||side==='right';let middle;
-if(Math.abs(s.x-t.x)>W+GAP){let lane=bounds.h-30;middle=`V${lane}H${t.x}V${t.y}`}else if(horizontal(sourceSide)&&horizontal(targetSide)){
+const crossed=horizontal(sourceSide)&&horizontal(targetSide)&&((sourceSide==='right'&&targetSide==='left'&&s.x>=t.x)||(sourceSide==='left'&&targetSide==='right'&&s.x<=t.x));
+if(crossed||Math.abs(s.x-t.x)>W+GAP){let lane=bounds.h-30;middle=`V${lane}H${t.x}V${t.y}`}else if(horizontal(sourceSide)&&horizontal(targetSide)){
 // Long cross-column links take the clear lane below all nodes.
 if(Math.abs(s.x-t.x)>W+GAP){let lane=bounds.h-30;middle=`V${lane}H${t.x}`}else{let mid=(s.x+t.x)/2;middle=`H${mid}V${t.y}H${t.x}`}}
 else if(!horizontal(sourceSide)&&!horizontal(targetSide)){let mid=(s.y+t.y)/2;middle=`V${mid}H${t.x}V${t.y}`}
@@ -70,7 +71,34 @@ canvas.onpointerdown=e=>{if(e.button!==0||e.target.closest('.node,.wire,#zoom,#l
 window.addEventListener('pointermove',e=>{if(pan){panX+=e.clientX-pan.x;panY+=e.clientY-pan.y;pan={x:e.clientX,y:e.clientY};schedule()}if(wireStart){lastPointer=world(e);canvas.querySelectorAll('.snap').forEach(n=>n.classList.remove('snap'));let snap=nearest(lastPointer);if(snap){lastPointer=portPoint(snap.name,snap.side);nodeMap.get(snap.name)?.querySelector('.port.'+snap.side).classList.add('snap')}schedule()}if(drag){if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>7){drag.moved=true;$('ghost').hidden=false;$('ghost').textContent=drag.name}if(!drag.moved)return;$('ghost').style.left=e.clientX-canvas.getBoundingClientRect().left+12+'px';$('ghost').style.top=e.clientY-canvas.getBoundingClientRect().top+12+'px';drag.trash=!!document.elementFromPoint(e.clientX,e.clientY)?.closest('#trash');$('trash').classList.toggle('trash-hot',drag.trash);let node=document.elementFromPoint(e.clientX,e.clientY)?.closest('.node'),name=node?.dataset.name;let f=name===''?{folder:true}:files.find(f=>f.name===name);let valid=!drag.trash&&f?.folder&&name!==drag.name&&!name.startsWith(drag.name+'/');canvas.querySelectorAll('.drop-target').forEach(n=>n.classList.remove('drop-target'));if(valid){node.classList.add('drop-target');if(drag.dest!==name){clearTimeout(drag.timer);drag.dest=name;drag.timer=setTimeout(()=>{if(drag&&collapsed.has(name)){collapsed.delete(name);render()}},650)}}else{clearTimeout(drag.timer);drag.dest=null}}});
 window.addEventListener('pointerup',safeAction(async e=>{if(wireStart){let start=wireStart,point=portPoint(start.name,start.side),at=world(e),target=nearest(at);complete(target);clearWire();if(!target&&point&&Math.hypot(at.x-point.x,at.y-point.y)<10)pendingPort=start}if(pan){pan=null;persist()}if(drag){let current=drag;cancelDrag();if(current.moved&&current.trash)await requestDelete(current.name);else if(current.moved&&current.dest!==null)await moveItem(current.name,current.dest)}}));
 function cancelDrag(){if(drag)clearTimeout(drag.timer);drag=null;$('ghost').hidden=true;$('trash').classList.remove('trash-hot');canvas.querySelectorAll('.drop-target').forEach(n=>n.classList.remove('drop-target'))}
-function confirmDelete(source){let item=files.find(f=>f.name===source),isFolder=!!item?.folder;return new Promise(resolve=>{let modal=element('div','delete-confirm',document.body),card=element('section','delete-card',modal);card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');element('h2','',card).textContent='Delete '+source.split('/').pop()+'?';element('p','',card).textContent=isFolder?'Choose the deletion scope. This permanently removes files from disk.':'This permanently removes the file from disk.';let subtree=false;if(isFolder){let one=element('label','',card),oneInput=element('input','',one);oneInput.type='radio';oneInput.name='delete-scope';oneInput.checked=true;one.append(' Delete this folder only (only if empty)');let all=element('label','',card),allInput=element('input','',all);allInput.type='radio';allInput.name='delete-scope';all.append(' Delete this folder and everything inside it');allInput.onchange=()=>subtree=allInput.checked;oneInput.onchange=()=>subtree=!oneInput.checked}let actions=element('div','actions',card),cancel=element('button','',actions),remove=element('button','danger',actions);cancel.textContent='Cancel';remove.textContent='Delete';cancel.onclick=()=>finish(false);remove.onclick=()=>finish(true);function finish(ok){modal.remove();resolve(ok?{subtree}:null)}modal.onclick=e=>{if(e.target===modal)finish(false)};setTimeout(()=>remove.focus(),0)})}
+function confirmDelete(source){
+    const isFolder=!!files.find(f=>f.name===source)?.folder,previous=document.activeElement;
+    return new Promise(resolve=>{
+        const modal=element('div','delete-confirm',document.body),card=element('section','delete-card',modal);
+        card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-labelledby','deleteTitle');
+        const title=element('h2','',card);title.id='deleteTitle';title.textContent='Delete '+source.split('/').pop()+'?';
+        element('p','',card).textContent=isFolder?'Choose the deletion scope. This permanently removes files from disk.':'This permanently removes the file from disk.';
+        let subtree=false;
+        if(isFolder){
+            for(const [all,text] of [[false,'Delete this folder only (only if empty)'],[true,'Delete this folder and everything inside it']]){
+                const label=element('label','',card),input=element('input','',label);input.type='radio';input.name='delete-scope';input.checked=!all;
+                label.append(' '+text);input.onchange=()=>subtree=all;
+            }
+        }
+        const actions=element('div','actions',card),cancel=element('button','',actions),remove=element('button','danger',actions);
+        cancel.textContent='Cancel';remove.textContent='Delete';cancel.onclick=()=>finish(false);remove.onclick=()=>finish(true);
+        function finish(ok){document.removeEventListener('keydown',key);modal.remove();previous?.focus();resolve(ok?{subtree}:null)}
+        function key(e){
+            if(e.key==='Escape'){e.preventDefault();finish(false)}
+            if(e.key==='Tab'){
+                const controls=[...card.querySelectorAll('button,input')],first=controls[0],last=controls.at(-1);
+                if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+                else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+            }
+        }
+        document.addEventListener('keydown',key);modal.onclick=e=>{if(e.target===modal)finish(false)};cancel.focus();
+    });
+}
 async function requestDelete(source){if(dirty()&&(edited===source||edited?.startsWith(source+'/'))){showApiError('Save or close the unsaved editor before deleting this item.');return}let choice=await confirmDelete(source);if(!choice)return;await flush();epoch++;let result=await api('delete',{folder:folder(),source,subtree:choice.subtree});if(selected===source||selected?.startsWith(source+'/'))selected=null;if(edited===source||edited?.startsWith(source+'/')){$('editorModal').hidden=true;edited=null}graph=result.graph;await load();persist();log('Deleted '+source+(choice.subtree?' and its contents.':'.'))}
 async function moveItem(source,destination){if(dirty()&&(edited===source||edited.startsWith(source+'/'))&&!confirm('This move affects unsaved editor changes. Keep the buffer and move the file?'))return;await flush();epoch++;let result=await api('move',{folder:folder(),source,destination});function remap(name){return name===source||name?.startsWith(source+'/')?result.target+name.slice(source.length):name}selected=remap(selected);edited=remap(edited);activeFolder=remap(activeFolder);collapsed=new Set([...collapsed].map(remap));graph=result.graph;await load();if(edited)$('fileTitle').textContent=edited;centerNode(result.target);persist();log('Moved '+source+' → '+result.target+'\n'+result.warnings.join('\n'))}
 window.addEventListener('pointercancel',()=>{pan=null;clearWire();cancelDrag()});window.addEventListener('blur',()=>{pan=null;clearWire();cancelDrag()});window.addEventListener('contextmenu',()=>{clearWire();cancelDrag()});document.addEventListener('keydown',e=>{if(e.key==='Escape'){clearWire();cancelDrag();cancelCreation()}if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;if(['Delete','Backspace'].includes(e.key)&&wireSelected!==null){e.preventDefault();removeWire()}});

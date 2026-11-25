@@ -56,6 +56,13 @@ with tempfile.TemporaryDirectory() as temp:
             assert 'imports its helper' in page.locator('.ai-result').inner_text()
             page.locator('.ai-panel').get_by_role('button',name='Suggest connections',exact=True).click();page.wait_for_selector('.ai-panel .details-connection')
             page.locator('.ai-panel').get_by_role('button',name='Dismiss',exact=True).click();page.keyboard.press('Escape')
+            page.route('**/api/ai',lambda route:route.fulfill(json={'ok':True,'rationale':'Test preview','diff':'+ change','proposal':'test-only'}))
+            page.locator('#run').click();panel=page.locator('.ai-panel')
+            panel.get_by_label('Source file',exact=True).select_option('a.py');panel.get_by_label('Target file',exact=True).select_option('b.py')
+            panel.get_by_role('button',name='Wire and update',exact=True).click();panel.get_by_role('button',name='Apply',exact=True).wait_for()
+            panel.get_by_label('AI instructions').fill('Changed instructions invalidate old proposals')
+            assert panel.get_by_role('button',name='Apply',exact=True).count()==0
+            page.keyboard.press('Escape')
             page.evaluate("wireSelected=graph.edges.find(e=>e.origin==='auto').id;removeWire()")
             assert page.evaluate("graph.edges.some(e=>e.suppressed)")
             assert not errors,errors

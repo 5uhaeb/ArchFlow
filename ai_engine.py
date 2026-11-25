@@ -12,15 +12,17 @@ from typing import Any
 
 def _clean_answer(text: str) -> str:
     """Accept a complete source file, optionally surrounded by a Markdown fence."""
-    match = re.search(r"```[^\n]*\n(.*?)```", text, re.DOTALL)
-    return (match.group(1) if match else text).strip("\n") + "\n"
+    match = re.fullmatch(r'\s*```[^\n]*\n(.*?)```\s*', text, re.DOTALL)
+    code = match.group(1) if match else text
+    return code if code.endswith('\n') else code + '\n'
 
 
 def ask_ai(source_name: str, source: str, target_name: str, target: str,
            constraint: str, api_key: str, model: str, provider: str = "OpenAI", base_url: str = "", instruction: str | None = None, request_notes: str = '') -> tuple[str, str]:
     extension = Path(target_name).suffix.lstrip(".") or "text"
+    source_extension = Path(source_name).suffix.lstrip('.') or 'text'
     prompt = f"""You are wiring source files. Source ({source_name}):
-```{extension}
+```{source_extension}
 {source}
 ```
 Target ({target_name}):
@@ -48,6 +50,11 @@ Constraint: {constraint}. Return ONLY the complete proposed target file in its o
         payload = {"model": model, "max_tokens": 8192, "messages": [{"role": "user", "content": prompt}]}
         header = {"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"}
         extractor = lambda d: "".join(p["text"] for p in d["content"] if p.get("type") == "text")
+    elif provider == 'OpenAI':
+        url = 'https://api.openai.com/v1/responses'
+        payload = {'model': model, 'input': prompt, 'max_output_tokens': 8192}
+        header = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + api_key}
+        extractor = lambda d: ''.join(part['text'] for item in d['output'] if item.get('type') == 'message' for part in item.get('content', []) if part.get('type') == 'output_text')
     else:
         url = "https://api.openai.com/v1/chat/completions"
         if provider == "Custom": url = base_url.rstrip("/") + "/chat/completions"
@@ -60,15 +67,27 @@ Constraint: {constraint}. Return ONLY the complete proposed target file in its o
             raw = response.read(2 * 1024 * 1024 + 1)
             if len(raw) > 2 * 1024 * 1024: raise ValueError('Provider response exceeds size limit.')
             data = json.loads(raw.decode())
+            if provider == 'OpenAI' and data.get('status') != 'completed':
+                raise ValueError('OpenAI did not complete the response. Reduce the task or retry; no files were changed.')
             reason = data.get('candidates', [{}])[0].get('finishReason') if provider == 'Gemini' else data.get('stop_reason') if provider == 'Claude' else data.get('choices', [{}])[0].get('finish_reason')
             if reason in {'MAX_TOKENS', 'max_tokens', 'length'}:
                 raise ValueError('Provider truncated the generated code. Reduce the task size and generate again; no files were changed.')
             if provider == 'Gemini' and reason not in {None, 'STOP'}:
                 raise ValueError('Provider did not complete the response. Revise the task and try again.')
             answer = extractor(data)
-            if not isinstance(answer, str): raise TypeError('Provider did not return text.')
+            if not isinstance(answer, str) or not answer.strip(): raise TypeError('Provider did not return text.')
     except urllib.error.HTTPError as exc:
         message = "Rate limit or API quota reached." if exc.code == 429 else "API key was rejected or does not have access." if exc.code in {401, 403} else f"Provider returned HTTP {exc.code}."
+        if exc.code == 429:
+            try:
+                error = json.loads(exc.read(16384)).get('error', {})
+                code = error.get('code') if isinstance(error, dict) else None
+            except (OSError, ValueError, AttributeError):
+                code = None
+            if code == 'insufficient_quota':
+                message = 'OpenAI API quota is exhausted. Check project billing and usage limits before retrying.'
+            elif code == 'rate_limit_exceeded':
+                message = 'OpenAI request rate limit reached. Wait before retrying.'
         if exc.code == 404:
             message = f"{provider}: model '{model}' was not found or is unavailable for this API key. Choose another model."
             if provider == 'Custom':

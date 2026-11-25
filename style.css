@@ -39,6 +39,11 @@
 .branch{stroke:#93979f;stroke-width:3;stroke-linecap:square;stroke-linejoin:miter}.wire{stroke-width:3;stroke-linejoin:miter}.wire.auto{stroke-dasharray:7 4}.wire.active{stroke-width:5}
 #legend{top:auto;bottom:64px;background:var(--canvas);border-radius:6px;max-height:45%}#legend summary{border:0;background:transparent}#legendItems{display:flex;flex-wrap:wrap;gap:3px 10px;max-width:360px}.legend-row{border-left-width:16px!important;padding-left:5px}.badge{right:8px;top:6px}
 .reference-legend{position:absolute;left:12px;bottom:109px;display:flex;flex-wrap:wrap;gap:12px;pointer-events:none;font:11px 'Segoe UI',sans-serif}.reference-legend span{display:flex;align-items:center;gap:5px}.reference-legend i{display:inline-block;width:16px;height:3px}
+/* Canvas tools have separate lanes, after the architecture-board rules. */
+#canvas #legend{bottom:146px;max-height:calc(100% - 160px)}
+#canvas .reference-legend{bottom:190px;right:200px}
+#canvas #zoom{left:144px;right:auto;max-width:calc(100% - 352px);bottom:12px}
+@media(max-width:700px){#canvas #zoom{max-width:calc(100% - 160px)}#canvas #minimap{display:none}#canvas .reference-legend{bottom:220px;right:8px}#canvas #legend{bottom:170px;max-height:calc(100% - 184px)}}
 /* File editing is a focused overlay, so the architecture canvas owns the window. */
 #canvas{width:100%}
 #emptyState{position:fixed;top:35%;left:25%;right:25%;text-align:center;padding:24px;background:var(--panel);border:1px solid var(--border);border-radius:10px;z-index:5}#emptyState[hidden],#workspaceForm[hidden]{display:none}#workspaceForm{position:fixed;z-index:60;top:25%;left:25%;padding:24px;background:var(--panel);border:1px solid var(--border)}#workspaceForm label{display:block;margin-bottom:12px}
