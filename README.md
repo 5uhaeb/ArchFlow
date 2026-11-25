@@ -4,6 +4,11 @@ Local Python desktop workspace wiring utility. Uses FastAPI, pywebview and vanil
 
 ## Run
 
+Production hardening is in progress; see [audit](docs/AUDIT.md) and
+[verified progress / remaining work](docs/PROGRESS.md). This checkout is not yet
+a validated production release. API calls now require a per-launch token, the
+workspace must be opened explicitly, and AI writes require preview confirmation.
+
 ```sh
 python -m pip install -r requirements.txt
 python main.py

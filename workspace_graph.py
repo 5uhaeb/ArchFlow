@@ -8,6 +8,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+import pathspec
 from fastapi import HTTPException
 
 from workspace_safety import MAX_ENTRIES, text
@@ -55,11 +56,15 @@ def write(folder, data):
 
 def scan(folder):
     count = 0
+    ignore_file = folder / '.gitignore'
+    try: rules = pathspec.GitIgnoreSpec.from_lines(ignore_file.read_text(encoding='utf-8').splitlines())
+    except (OSError, UnicodeError): rules = pathspec.GitIgnoreSpec.from_lines([])
     # Prune ignored directories before descending (unlike rglob filtering).
     for base,dirs,files in os.walk(folder,followlinks=False):
-        dirs[:]=sorted(d for d in dirs if d not in IGNORED and not (Path(base)/d).is_symlink())
+        dirs[:]=sorted(d for d in dirs if d not in IGNORED and not (Path(base)/d).is_symlink() and not rules.match_file((Path(base)/d).relative_to(folder).as_posix()+'/'))
         for name in dirs+sorted(files):
             p=Path(base)/name
+            if rules.match_file(p.relative_to(folder).as_posix()): continue
             if name in IGNORED or name.startswith('.archflow-') or p.is_symlink(): continue
             if p.suffix.lower() in {'.pyc','.exe','.dll','.png','.jpg','.zip','.pdf'}: continue
             count += 1
