@@ -4,6 +4,7 @@
 <section id="emptyState"><h1>Open a folder</h1><p>Choose a project to begin. No workspace is opened automatically.</p><button id="createWorkspace">Create new workspace</button></section><form id="workspaceForm" hidden><label>Parent location <input id="workspaceParent" readonly></label><label>Workspace name <input id="workspaceName" required></label><button type="submit">Create workspace</button><button id="cancelWorkspace" type="button">Cancel</button></form>
 <script>
 'use strict';
+const SESSION_TOKEN='__SESSION_TOKEN__';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg',canvas=$('canvas');let files=[],graph={edges:[]},collapsed=new Set(),positions={},selected=null,wireSelected=null,wireStart=null,panX=0,panY=0,zoom=1,raf=0,pan=null,lastPointer=null,saveTimer;
 const esc=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const MASTER_RE=/("""[\s\S]*?"""|'''[\s\S]*?'''|&quot;&quot;&quot;[\s\S]*?&quot;&quot;&quot;|&#39;&#39;&#39;[\s\S]*?&#39;&#39;&#39;|&quot;(?:\\[\s\S]|(?!&quot;)[^\n])*?&quot;|&#39;(?:\\[\s\S]|(?!&#39;)[^\n])*?&#39;|`(?:\\[\s\S]|[^`])*`)|(#[^\n]*|\/\/[^\n]*|\/\*[\s\S]*?\*\/)|(\b\d+(?:\.\d+)?\b)|(\b(?:def|class|import|from|return|if|else|elif|for|while|async|await|function|const|let|var|try|except|raise|pass|True|False|None|new|throw|export)\b)|(@[\w.]+)|(\b\w+(?=\s*\())/g;
@@ -11,5 +12,5 @@ function color(){let code=esc($('code').value);$('highlight').innerHTML=code.rep
 function sync(){$('backdrop').scrollTop=$('code').scrollTop;$('backdrop').scrollLeft=$('code').scrollLeft;$('nums').scrollTop=$('code').scrollTop}
 function log(s){$('log').textContent+=`[${new Date().toLocaleTimeString()}] ${s}\n`;$('log').scrollTop=1e9}
 function showApiError(message){let box=$('apiError');box.textContent=message;box.hidden=false;clearTimeout(window.apiErrorTimer);window.apiErrorTimer=setTimeout(()=>box.hidden=true,9000)}
-async function api(p,data){let r;try{r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});let j=await r.json();if(!r.ok){let message=j.detail||'Request failed';showApiError(message);throw Error(message)}return j}catch(error){if(!String(error.message).includes('Request failed'))showApiError(error.message||'Network error. Check your connection and provider settings.');throw error}}
+async function api(p,data){let r;try{r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-ArchFlow-Token':SESSION_TOKEN},body:JSON.stringify(data)});let j=await r.json();if(!r.ok){let message=j.detail||'Request failed';showApiError(message);throw Error(message)}return j}catch(error){if(!String(error.message).includes('Request failed'))showApiError(error.message||'Network error. Check your connection and provider settings.');throw error}}
 </script><script src="/workspace.js"></script></body></html>

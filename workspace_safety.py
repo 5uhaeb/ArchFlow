@@ -2,10 +2,11 @@
 import os
 from functools import lru_cache
 from pathlib import Path
+
 from fastapi import HTTPException
 
-MAX_BYTES = int(os.environ.get('ARCHFLOW_MAX_FILE_BYTES', 1024 * 1024))
-MAX_ENTRIES = int(os.environ.get('ARCHFLOW_MAX_ENTRIES', 2000))
+MAX_BYTES = int(os.environ.get('ARCHFLOW_MAX_FILE_BYTES', '1048576'))
+MAX_ENTRIES = int(os.environ.get('ARCHFLOW_MAX_ENTRIES', '2000'))
 
 @lru_cache(maxsize=4096)
 def cached_text(path: str, mtime: int, size: int) -> str:

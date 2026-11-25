@@ -14,7 +14,8 @@ def fixture(root):
 
 class WorkspaceTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name);fixture(self.root);self.client=TestClient(main.app)
+        self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name);fixture(self.root);self.client=TestClient(main.app,headers={'x-archflow-token':main.SESSION_TOKEN})
+        self.post('files',path=str(self.root))
     def tearDown(self): self.client.close();self.temp.cleanup()
     def post(self,route,**data): return self.client.post('/api/'+route,json={'folder':str(self.root),**data})
     def test_detection_and_diagnostics(self):
@@ -45,7 +46,8 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.post('new',name='new/deep/a.txt',content='hello').status_code,200)
         with patch('main.ask_ai',return_value=('x = 1\ny = 2\n','mocked')):
             r=self.post('ai',source='pkg/a.py',target='pkg/b.py',api_key='test',model='test',constraint='APPEND_ONLY')
-            self.assertTrue(r.json()['written'])
+            self.assertFalse(r.json()['written'])
+            self.assertTrue(self.post('ai/apply',proposal=r.json()['proposal']).json()['written'])
         self.assertEqual(self.post('ai',source='pkg',target='pkg/b.py',api_key='test',model='test',constraint='SUGGEST_ONLY').status_code,400)
         (self.root/'.archflow_graph.json').write_text(json.dumps({'edges':[{'source':'pkg/a.py','target':'pkg/b.py'}]}))
         graph=wg.read(self.root);self.assertEqual(graph['version'],2);self.assertEqual(graph['edges'][0]['source_port'],'right')

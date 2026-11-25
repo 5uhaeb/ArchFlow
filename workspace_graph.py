@@ -7,7 +7,9 @@ import re
 import tempfile
 import threading
 from pathlib import Path
+
 from fastapi import HTTPException
+
 from workspace_safety import MAX_ENTRIES, text
 
 LOCK = threading.RLock()
@@ -86,7 +88,7 @@ def detect(folder):
             patterns=[r'''(?:from\s*|import\s*|require\s*\(\s*)["']([^"']+)["']'''] if p.suffix in {'.js','.mjs','.ts'} else ([r'''(?:src|href)\s*=\s*["']([^"']+)["']'''] if p.suffix in {'.html','.htm'} else [r'''@import\s+(?:url\(\s*)?["']([^"']+)["']''',r'''url\(\s*["']?([^"')\s]+)'''])
             refs.extend((r,True) for pattern in patterns for r in re.findall(pattern,content))
         for ref,local in refs:
-            if re.match(r'^(?:[a-z]+:|//|#)',ref,re.I): continue
+            if re.match(r'^(?:[a-z]+:|//|#)',ref,re.IGNORECASE): continue
             ref=ref.split('?')[0].split('#')[0]
             base=(folder/ref.lstrip('/') if p.suffix=='.py' or ref.startswith('/') else p.parent/ref).resolve()
             if not base.is_relative_to(folder): continue

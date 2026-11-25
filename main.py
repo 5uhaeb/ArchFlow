@@ -1,34 +1,81 @@
 from __future__ import annotations
 
-import json
-import threading
-import webbrowser
 import ast
+import hmac
+import json
+import secrets
+import socket
+import threading
+import time
+import webbrowser
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from ai_engine import ask_ai, guard_update
 import workspace_graph as wg
+from ai_engine import ask_ai, guard_update
 from workspace_safety import text
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI()
+SESSION_TOKEN = secrets.token_urlsafe(32)
+ACTIVE_ROOT = None
+
+@app.middleware('http')
+async def session_security(request, call_next):
+    host = request.headers.get('host', '').split(':')[0]
+    if host not in {'localhost','127.0.0.1','testserver'}:
+        return JSONResponse({'detail':'Invalid host.'},status_code=403)
+    if request.url.path.startswith('/api/'):
+        origin = request.headers.get('origin')
+        if origin and (urlsplit(origin).hostname not in {'localhost','127.0.0.1'} or urlsplit(origin).netloc != request.headers.get('host')):
+            return JSONResponse({'detail':'Invalid origin.'},status_code=403)
+        if not hmac.compare_digest(request.headers.get('x-archflow-token',''),SESSION_TOKEN):
+            return JSONResponse({'detail':'Invalid session token.'},status_code=401)
+    return await call_next(request)
 
 class Folder(BaseModel): path: str
 class FileEdit(BaseModel): folder: str; name: str; content: str = ""
 class Edge(BaseModel): folder: str; source: str; target: str
 class AIJob(Edge): api_key: str; model: str; constraint: str; provider: str = "OpenAI"; base_url: str = ""
+PROPOSALS = {}
+UNDO = {}
 
-def project(path: str) -> Path:
+class Approval(BaseModel):
+    proposal: str
+
+@app.post('/api/ai/apply')
+def apply_ai(body: Approval):
+    data = PROPOSALS.pop(body.proposal, None)
+    if data is None: raise HTTPException(409,'Proposal expired. Generate another preview.')
+    path, original, proposed, constraint = data
+    if text(path) != original: raise HTTPException(409,'Target changed after preview. Generate another preview.')
+    result = guard_update(path, proposed, constraint)
+    if result['written']: UNDO[str(path)] = (original, proposed)
+    return result
+
+@app.post('/api/ai/undo')
+def undo_ai(body: FileEdit):
+    path = safe_name(project(body.folder),body.name)
+    item = UNDO.get(str(path))
+    if not item: raise HTTPException(409,'No AI undo exists for this file in this session.')
+    if text(path) != item[1]: raise HTTPException(409,'File changed since AI write. Undo refused to protect edits.')
+    path.write_text(item[0],encoding='utf-8');del UNDO[str(path)]
+    return {'ok':True}
+
+def project(path: str, opening: bool = False) -> Path:
+    global ACTIVE_ROOT
     if not path.strip(): raise HTTPException(400, "Open a folder or create a workspace first.")
     folder = Path(path).expanduser().resolve()
     if not folder.is_dir(): raise HTTPException(400, "Choose an existing folder.")
     if folder == ROOT or folder == Path(folder.anchor) or folder == Path.home():
         raise HTTPException(400, "Choose a dedicated project folder, not the app, home or filesystem root.")
+    if opening: ACTIVE_ROOT = folder
+    elif ACTIVE_ROOT != folder: raise HTTPException(409, 'Open this workspace before accessing its files.')
     return folder
 
 class NewWorkspace(BaseModel):
@@ -72,14 +119,14 @@ def diagnose(path: Path, content: str | None = None) -> dict:
     return {"status": "ok", "diag": "No lightweight diagnostics."}
 
 @app.get("/")
-def home(): return FileResponse(ROOT / "index.html")
+def home(): return HTMLResponse((ROOT / 'index.html').read_text(encoding='utf-8').replace('__SESSION_TOKEN__',SESSION_TOKEN), headers={'Cache-Control':'no-store'})
 @app.get("/style.css")
 def css(): return FileResponse(ROOT / "style.css", media_type="text/css")
 @app.get("/workspace.js")
 def workspace_script(): return FileResponse(ROOT / "workspace.js", media_type="text/javascript")
 @app.post("/api/files")
 def files(body: Folder):
-    folder = project(body.path)
+    folder = project(body.path, opening=True)
     ignored = {".git", ".pytest_cache", "__pycache__", "node_modules", ".venv", "venv", "dist", "build", ".archflow_graph.json"}
     entries = []
     for path in wg.scan(folder):
@@ -125,7 +172,12 @@ def ai(body: AIJob):
     if not (folder/source).is_file() or not (folder/target).is_file(): raise HTTPException(400, "AI wiring requires two files, not folders.")
     try:
         proposed, rationale = ask_ai(source, (folder/source).read_text(encoding="utf-8"), target, (folder/target).read_text(encoding="utf-8"), body.constraint, body.api_key, body.model, body.provider, body.base_url)
-        return {**guard_update(folder / target, proposed, body.constraint), "rationale": rationale}
+        result = guard_update(folder / target, proposed, 'SUGGEST_ONLY')
+        token = secrets.token_urlsafe(24)
+        if body.constraint != 'SUGGEST_ONLY':
+            if len(PROPOSALS)>=20: PROPOSALS.clear()
+            PROPOSALS[token] = (folder/target,text(folder/target),proposed,body.constraint)
+        return {**result, 'proposal': token if body.constraint != 'SUGGEST_ONLY' else None, "rationale": rationale}
     except ValueError as exc: raise HTTPException(400, str(exc))
 
 def run(): uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
@@ -135,19 +187,15 @@ def pick_folder():
         import webview
         chosen = webview.windows[0].create_file_dialog(webview.FOLDER_DIALOG)
         return {"path": chosen[0] if chosen else ""}
-    except Exception:
-        import tkinter as tk
-        from tkinter.filedialog import askdirectory
-        root = tk.Tk(); root.withdraw()
-        try: return {"path": askdirectory()}
-        finally: root.destroy()
+    except (ImportError, IndexError, AttributeError, RuntimeError):
+        raise HTTPException(503, 'Native folder picker unavailable. Enter a folder path in the toolbar.') from None
 
 @app.post("/api/graph")
 def save_graph(body: FileEdit):
     folder = project(body.folder)
     try:
         graph = json.loads(body.content)
-        if not isinstance(graph, dict) or not isinstance(graph.get('edges', []), list): raise ValueError('Invalid graph structure.')
+        if not isinstance(graph, dict) or not isinstance(graph.get('edges', []), list): raise TypeError('Invalid graph structure.')
         for edge in graph.get('edges', []):
             wg.safe(folder, edge['source'], root=True)
             wg.safe(folder, edge['target'], root=True)
@@ -165,11 +213,23 @@ class Move(BaseModel):
 @app.post('/api/move')
 def move(body: Move): return wg.move(project(body.folder), body.source, body.destination)
 if __name__ == "__main__":
-    threading.Thread(target=run, daemon=True).start()
+    listener = socket.socket()
+    try: listener.bind(('127.0.0.1',8765))
+    except OSError: listener.bind(('127.0.0.1',0))
+    port = listener.getsockname()[1]
+    listener.listen(128)
+    server = uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=port,log_level='warning'))
+    thread = threading.Thread(target=lambda: server.run(sockets=[listener]),daemon=True)
+    thread.start()
+    url = f'http://127.0.0.1:{port}'
+    while not server.started and thread.is_alive(): time.sleep(.02)
     try:
         import webview
-        webview.create_window("ArchFlow", "http://127.0.0.1:8765", width=1600, height=1000, min_size=(1100, 720))
+        webview.create_window("ArchFlow", url, width=1600, height=1000, min_size=(1100, 720))
         webview.start()
-    except Exception:
-        webbrowser.open("http://127.0.0.1:8765")
-        threading.Event().wait()
+    except (ImportError, RuntimeError, OSError):
+        webbrowser.open(url)
+        try: thread.join()
+        except KeyboardInterrupt: pass
+    finally:
+        server.should_exit=True;thread.join(timeout=5);listener.close()

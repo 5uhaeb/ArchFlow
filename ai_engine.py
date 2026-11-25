@@ -11,7 +11,7 @@ from pathlib import Path
 
 def _clean_answer(text: str) -> str:
     """Accept a full Python file, optionally surrounded by a Markdown fence."""
-    match = re.search(r"```[^\n]*\n(.*?)```", text, re.S)
+    match = re.search(r"```[^\n]*\n(.*?)```", text, re.DOTALL)
     return (match.group(1) if match else text).strip("\n") + "\n"
 
 
@@ -48,13 +48,15 @@ Constraint: {constraint}. Return ONLY the complete proposed target file in its o
     request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=header)
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
-            answer = extractor(json.loads(response.read().decode()))
+            raw = response.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024: raise ValueError('Provider response exceeds size limit.')
+            answer = extractor(json.loads(raw.decode()))
+            if not isinstance(answer, str): raise TypeError('Provider did not return text.')
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:500]
         message = "Rate limit or API quota reached." if exc.code == 429 else "API key was rejected or does not have access." if exc.code in {401, 403} else f"Provider returned HTTP {exc.code}."
-        raise ValueError(f"{message} {detail}") from exc
-    except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError) as exc:
-        raise ValueError(f"AI request failed: {exc}") from exc
+        raise ValueError(message) from None
+    except (urllib.error.URLError, KeyError, IndexError, TypeError, UnicodeError, TimeoutError, OSError, json.JSONDecodeError):
+        raise ValueError('Provider request failed or returned malformed data. Check connectivity and provider settings.') from None
     return _clean_answer(answer), "AI proposed a complete guarded target-file update."
 
 
