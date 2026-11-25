@@ -253,8 +253,18 @@ class Move(BaseModel):
     source: str
     destination: str
 
+class DeleteItem(BaseModel):
+    folder: str
+    source: str
+    subtree: bool = False
+
 @app.post('/api/move')
 def move(body: Move): return wg.move(project(body.folder), body.source, body.destination)
+
+@app.post('/api/delete')
+def delete_item(body: DeleteItem):
+    """Delete a file, or an empty folder unless its subtree was explicitly confirmed."""
+    return wg.delete(project(body.folder), body.source, body.subtree)
 if __name__ == "__main__":
     listener = socket.socket()
     try: listener.bind(('127.0.0.1',8765))

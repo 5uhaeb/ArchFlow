@@ -159,3 +159,29 @@ def move(folder,source,destination):
         # Preserve remapped auto edges until the client reloads; detection also exposes broken old imports.
         warnings=['Imports and relative references may require updates. Source code was not rewritten.']
         return {'ok':True,'source':old,'target':new,'graph':read(folder),'warnings':warnings}
+
+def delete(folder, source, subtree=False):
+    """Remove one workspace item and its graph references, without ever touching the root."""
+    with LOCK:
+        path = safe(folder, source)
+        if not path.exists():
+            raise HTTPException(404, 'The item no longer exists.')
+        is_folder = path.is_dir()
+        if is_folder and any(path.iterdir()) and not subtree:
+            raise HTTPException(409, 'This folder is not empty. Choose the subtree option to continue.')
+        before = read(folder)
+        prefix = source.rstrip('/') + '/'
+        updated = copy.deepcopy(before)
+        updated['edges'] = [edge for edge in before['edges'] if edge['source'] != source and edge['target'] != source and not edge['source'].startswith(prefix) and not edge['target'].startswith(prefix)]
+        updated['collapsed'] = [name for name in before.get('collapsed', []) if name != source and not name.startswith(prefix)]
+        if updated.get('selected') == source or str(updated.get('selected', '')).startswith(prefix):
+            updated['selected'] = None
+        try:
+            if is_folder:
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            graph = write(folder, updated)
+        except OSError as exc:
+            raise HTTPException(500, 'Delete failed: ' + str(exc)) from exc
+        return {'ok': True, 'source': source, 'subtree': bool(subtree), 'graph': graph}
