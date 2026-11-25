@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 import workspace_graph as wg
-from ai_engine import ask_ai, available_models, guard_update
+from ai_engine import ask_ai, guard_update
 from workspace_safety import text
 
 ROOT = Path(__file__).resolve().parent
@@ -43,7 +43,7 @@ async def session_security(request, call_next):
 class Folder(BaseModel): path: str
 class FileEdit(BaseModel): folder: str; name: str; content: str = ""
 class Edge(BaseModel): folder: str; source: str; target: str
-class AIJob(Edge): api_key: str; model: str; constraint: str; provider: str = "OpenAI"; base_url: str = ""; instructions: str = ''
+class AIJob(Edge): constraint: str; instructions: str = ''
 PROPOSALS: dict[str, tuple[Path, str, str, str]] = {}
 UNDO: dict[str, tuple[str, str]] = {}
 
@@ -140,10 +140,6 @@ class AIAssist(BaseModel):
     action: Literal['validate','explain','suggest']
     folder: str = ''
     name: str = ''
-    api_key: str
-    model: str
-    provider: str = 'OpenAI'
-    base_url: str = ''
 
 @app.post('/api/ai/assist')
 def assist(body: AIAssist):
@@ -157,7 +153,7 @@ def assist(body: AIAssist):
             names=[p.relative_to(folder).as_posix() for p in wg.scan(folder) if p.is_file()][:200]
             content=json.dumps(names);instruction='Suggest up to five plausible architectural relationships to review, based only on these paths. These are hypotheses, not detected dependencies. Return only a JSON array of objects with source, target, rationale. Only use listed paths.'
     try:
-        answer,_=ask_ai('input.txt',content,'answer.txt','','SUGGEST_ONLY',body.api_key,body.model,body.provider,body.base_url,instruction=instruction)
+        answer,_=ask_ai('input.txt',content,'answer.txt','','SUGGEST_ONLY','','gpt-6.1-terra','CodexLocal',instruction=instruction)
         if body.action=='suggest':
             proposals=json.loads(answer)
             if not isinstance(proposals,list): raise ValueError('Provider did not return a suggestion list.')
@@ -166,14 +162,17 @@ def assist(body: AIAssist):
     except ValueError as exc: raise HTTPException(400,str(exc)) from None
     except TypeError: raise HTTPException(400,'Provider returned malformed data.') from None
 
-@app.post('/api/models')
-def models(body: AIAssist):
-    if body.provider != 'Gemini':
-        raise HTTPException(400, 'Live model discovery currently supports Gemini.')
-    try:
-        return {'models': available_models(body.api_key)}
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from None
+@app.post('/api/chatgpt/status')
+def chatgpt_status():
+    from codex_local import connection_status
+    try: return connection_status()
+    except ValueError as exc: raise HTTPException(400, str(exc)) from None
+
+@app.post('/api/chatgpt/connect')
+def chatgpt_connect():
+    from codex_local import connect
+    try: return connect()
+    except ValueError as exc: raise HTTPException(400, str(exc)) from None
 @app.post("/api/files")
 def files(body: Folder):
     folder = project(body.path, opening=True)
@@ -225,7 +224,7 @@ def ai(body: AIJob):
     folder = project(body.folder); source = body.source; target = body.target; safe_name(folder, source); safe_name(folder, target)
     if not (folder/source).is_file() or not (folder/target).is_file(): raise HTTPException(400, "AI wiring requires two files, not folders.")
     try:
-        proposed, rationale = ask_ai(source, text(folder/source), target, text(folder/target), body.constraint, body.api_key, body.model, body.provider, body.base_url, request_notes=body.instructions)
+        proposed, rationale = ask_ai(source, text(folder/source), target, text(folder/target), body.constraint, '', 'gpt-6.1-terra', 'CodexLocal', request_notes=body.instructions)
         result = guard_update(folder / target, proposed, body.constraint, write=False)
         token = secrets.token_urlsafe(24)
         if body.constraint != 'SUGGEST_ONLY' and result['ok']:
@@ -242,7 +241,7 @@ class CodexJob(Edge):
 
 @app.post('/api/codex')
 def codex_generate(body: CodexJob):
-    return ai(AIJob(**body.model_dump(), api_key='', model='gpt-6.1-terra', provider='CodexLocal'))
+    return ai(AIJob(**body.model_dump()))
 
 @app.post("/api/pick-folder")
 def pick_folder():

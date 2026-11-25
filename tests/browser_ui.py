@@ -18,6 +18,8 @@ with tempfile.TemporaryDirectory() as temp:
         with sync_playwright() as p:
             browser=p.chromium.launch(channel=os.environ.get('ARCHFLOW_BROWSER_CHANNEL') or None)
             page=browser.new_page(viewport={'width':1500,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+            page.route('**/api/chatgpt/status',lambda route:route.fulfill(json={'connected':True,'signing_in':False}))
+            page.route('**/api/chatgpt/connect',lambda route:route.fulfill(json={'connected':True,'signing_in':False}))
             page.goto('http://127.0.0.1:8878');page.locator('#folder').fill(temp);page.locator('#folder').press('Enter');page.wait_for_selector('.node[data-name="a.py"]')
             page.locator('#fit').click();page.wait_for_timeout(100)
             # Duplicate port gestures must select one canonical edge.
@@ -50,7 +52,8 @@ with tempfile.TemporaryDirectory() as temp:
             page.route('**/api/ai/assist',assist_mock)
             page.locator('#toolbar details').evaluate('(el)=>el.open=true')
             assert page.locator('#editorModal').is_hidden()
-            page.locator('#key').fill('mock-key');page.locator('#enableAi').click();page.wait_for_function('aiEnabled')
+            assert page.locator('#key,#provider,#model,#base').count()==0
+            page.get_by_role('button',name='Connect ChatGPT',exact=True).click();page.wait_for_function('aiEnabled')
             page.locator('#toolbar').get_by_role('button',name='AI',exact=True).click()
             page.locator('.ai-panel').get_by_role('button',name='Explain selected file').click();page.wait_for_selector('.ai-result')
             assert 'imports its helper' in page.locator('.ai-result').inner_text()

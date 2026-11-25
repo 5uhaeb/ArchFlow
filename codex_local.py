@@ -9,6 +9,36 @@ import threading
 from pathlib import Path
 
 BUSY = threading.Lock()
+LOGIN = None
+LOGIN_LOCK = threading.Lock()
+
+
+def connection_status() -> dict:
+    try:
+        result = subprocess.run([executable(), 'login', 'status'], capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=10, check=False,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        message = (result.stdout + result.stderr).lower()
+        return {'connected': result.returncode == 0 and 'chatgpt' in message,
+                'signing_in': LOGIN is not None and LOGIN.poll() is None}
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError('Could not check ChatGPT login. Check the Codex installation.') from None
+
+
+def connect() -> dict:
+    global LOGIN
+    with LOGIN_LOCK:
+        status = connection_status()
+        if status['connected'] or status['signing_in']:
+            return status
+        try:
+            LOGIN = subprocess.Popen([executable(), 'login'], stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     env={k: v for k, v in os.environ.items() if k != 'OPENAI_API_KEY'},
+                                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except OSError:
+            raise ValueError('Could not open ChatGPT sign-in. Try codex login from a terminal.') from None
+        return {'connected': False, 'signing_in': True}
 
 
 def executable() -> str:
@@ -36,6 +66,8 @@ def generate(prompt: str, model: str = 'gpt-6.1-terra') -> str:
         raise ValueError('Local Codex is busy. Wait for the current request to finish.')
     try:
         binary = executable()
+        if not connection_status()['connected']:
+            raise ValueError('Connect ChatGPT first. This mode requires your ChatGPT subscription login.')
         with tempfile.TemporaryDirectory(prefix='archflow-codex-') as temp:
             output = Path(temp) / 'answer.txt'
             command = [binary, '--no-daemon', '-a', 'never', 'exec', '--ignore-user-config', '--ephemeral',

@@ -14,7 +14,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-Open a project, create files/folders, connect output to input ports and run wiring. API keys stay in the current browser session. Custom providers accept a base URL including `/v1`. Review generated changes before using them. Preview Diff Only avoids writes. Preserve Existing Code retains every meaningful existing line, ignoring trailing whitespace.
+Open ChatGPT Connection and click **Connect ChatGPT**. Sign in in your browser if prompted. ArchFlow uses Codex through your ChatGPT subscription; API keys and provider URLs are no longer part of the app. Plan usage limits apply. Open a project, create files/folders, connect ports and run wiring. Review each diff before Apply. Preview Diff Only avoids writes. Preserve Existing Code retains every meaningful existing line, ignoring trailing whitespace.
 
 The local server binds to 127.0.0.1:8765. Native window failures fall back to your browser. Workspace graph data is stored in `.archflow_graph.json`.
 
@@ -24,8 +24,8 @@ UI controls have changed: single-click selects; double-click or Enter opens
 Details, where Open in editor launches the file editor. Right-click wires for
 actions. Delete/Backspace removes a selected manual connection or suppresses a
 detected one. Ctrl/Cmd+Z undoes connection edits; Ctrl+Shift+Z redoes them.
-AI opens the three-action panel; Enable AI now makes a provider validation
-request. Ctrl/Cmd+K opens Commands and ? shows Help. About identifies this build.
+AI opens the three-action panel; Connect ChatGPT reuses or starts your subscription sign-in.
+Ctrl/Cmd+K opens Commands and ? shows Help. About identifies this build.
 See [UI pass scope and limitations](docs/UI_PROGRESS.md).
 
 The canvas follows the architecture-board reference: a centered Workspace node feeds folder columns across a shared gray bus; each column stacks its files along a left hierarchy trunk. Nested folders retain indented subtrees within their column. Rounded nodes and four port dots share extension colors (Python blue, JSON pink, HTML orange, CSS purple, JavaScript gold). New users start in the dark theme; existing theme preferences remain respected. New workspaces fit automatically, while saved viewports are restored.
@@ -46,7 +46,7 @@ Graph schema v2 stores typed manual/auto edges, port sides, collapsed paths, sel
 
 ## Verification
 
-For the VS Code Codex login instead of an API key, choose **Local Codex (VS Code)**, then **Enable AI**. This uses `gpt-6.1-terra` through the extension's bundled CLI. See [local Codex setup and API](docs/LOCAL_CODEX.md).
+Click **Connect ChatGPT** to use `gpt-6.1-terra` through the Codex extension's bundled CLI. See [ChatGPT connection setup](docs/LOCAL_CODEX.md).
 
 ```sh
 python -m py_compile main.py ai_engine.py workspace_graph.py

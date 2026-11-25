@@ -1,6 +1,16 @@
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import main
+from codex_local import connection_status
+
+
+def test_status_requires_chatgpt_login():
+    with patch('codex_local.executable', return_value='codex'), patch('codex_local.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='', stderr='Logged in using API key')):
+        assert not connection_status()['connected']
+    with patch('codex_local.executable', return_value='codex'), patch('codex_local.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='', stderr='Logged in using ChatGPT')):
+        assert connection_status()['connected']
 
 
 def test_local_endpoint_previews_then_applies(tmp_path, monkeypatch):
