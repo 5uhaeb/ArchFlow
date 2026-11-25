@@ -14,3 +14,10 @@ def test_suppression_survives_refresh(tmp_path):
     (tmp_path/'a.py').write_text('import b\n');(tmp_path/'b.py').write_text('')
     graph=wg.refresh(tmp_path);graph['edges'][0]['suppressed']=True;wg.write(tmp_path,graph)
     assert wg.refresh(tmp_path,force=True)['edges'][0]['suppressed']
+
+def test_duplicate_migration_creates_original_backup(tmp_path):
+    import json
+    original={'version':2,'edges':[{'source':'requirements.txt','target':'app.py'},{'source':'requirements.txt','target':'app.py'}]}
+    path=tmp_path/'.archflow_graph.json';path.write_text(json.dumps(original))
+    assert len(wg.read(tmp_path)['edges'])==1
+    assert json.loads((tmp_path/'.archflow_graph.v2-before-merge.json').read_text())==original

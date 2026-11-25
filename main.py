@@ -5,10 +5,12 @@ import hmac
 import json
 import secrets
 import socket
+import subprocess
 import threading
 import time
 import webbrowser
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 import uvicorn
@@ -124,6 +126,43 @@ def home(): return HTMLResponse((ROOT / 'index.html').read_text(encoding='utf-8'
 def css(): return FileResponse(ROOT / "style.css", media_type="text/css")
 @app.get("/workspace.js")
 def workspace_script(): return FileResponse(ROOT / "workspace.js", media_type="text/javascript")
+@app.get('/ui.js')
+def ui_script(): return FileResponse(ROOT/'ui.js',media_type='text/javascript')
+@app.post('/api/about')
+def about():
+    try: commit=subprocess.run(['git','rev-parse','HEAD'],cwd=ROOT,capture_output=True,text=True,timeout=2,check=True).stdout.strip()
+    except (OSError,subprocess.SubprocessError): commit='unavailable'
+    return {'version':'0.3.0-dev','commit':commit}
+
+class AIAssist(BaseModel):
+    action: Literal['validate','explain','suggest']
+    folder: str = ''
+    name: str = ''
+    api_key: str
+    model: str
+    provider: str = 'OpenAI'
+    base_url: str = ''
+
+@app.post('/api/ai/assist')
+def assist(body: AIAssist):
+    content='';names=[]
+    instruction='Reply with the single word OK. This is a credential connectivity check.'
+    if body.action!='validate':
+        folder=project(body.folder)
+        if body.action=='explain':
+            content=text(safe_name(folder,body.name));instruction='Explain this file in plain language. Do not output replacement code.'
+        else:
+            names=[p.relative_to(folder).as_posix() for p in wg.scan(folder) if p.is_file()][:200]
+            content=json.dumps(names);instruction='Suggest up to five plausible architectural relationships to review, based only on these paths. These are hypotheses, not detected dependencies. Return only a JSON array of objects with source, target, rationale. Only use listed paths.'
+    try:
+        answer,_=ask_ai('input.txt',content,'answer.txt','','SUGGEST_ONLY',body.api_key,body.model,body.provider,body.base_url,instruction=instruction)
+        if body.action=='suggest':
+            proposals=json.loads(answer)
+            if not isinstance(proposals,list): raise ValueError('Provider did not return a suggestion list.')
+            return {'suggestions':[e for e in proposals[:5] if isinstance(e,dict) and e.get('source') in names and e.get('target') in names and e.get('source')!=e.get('target')]}
+        return {'text':answer}
+    except ValueError as exc: raise HTTPException(400,str(exc)) from None
+    except TypeError: raise HTTPException(400,'Provider returned malformed data.') from None
 @app.post("/api/files")
 def files(body: Folder):
     folder = project(body.path, opening=True)

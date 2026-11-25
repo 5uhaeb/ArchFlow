@@ -13,4 +13,4 @@ function sync(){$('backdrop').scrollTop=$('code').scrollTop;$('backdrop').scroll
 function log(s){$('log').textContent+=`[${new Date().toLocaleTimeString()}] ${s}\n`;$('log').scrollTop=1e9}
 function showApiError(message){let box=$('apiError');box.textContent=message;box.hidden=false;clearTimeout(window.apiErrorTimer);window.apiErrorTimer=setTimeout(()=>box.hidden=true,9000)}
 async function api(p,data){let r;try{r=await fetch('/api/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-ArchFlow-Token':SESSION_TOKEN},body:JSON.stringify(data)});let j=await r.json();if(!r.ok){let message=j.detail||'Request failed';showApiError(message);throw Error(message)}return j}catch(error){if(!String(error.message).includes('Request failed'))showApiError(error.message||'Network error. Check your connection and provider settings.');throw error}}
-</script><script src="/workspace.js"></script></body></html>
+</script><script src="/workspace.js"></script><script src="/ui.js"></script></body></html>

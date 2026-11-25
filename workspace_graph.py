@@ -2,6 +2,7 @@
 import ast
 import copy
 import json
+import logging
 import os
 import posixpath
 import re
@@ -55,7 +56,9 @@ def read(folder):
         path=folder/'.archflow_graph.json';raw=json.loads(path.read_text(encoding='utf-8'));normalized=normalize(raw)
         if len(normalized['edges'])<len(raw.get('edges',[])):
             backup=folder/'.archflow_graph.v2-before-merge.json'
-            if not backup.exists(): shutil.copy2(path,backup)
+            if not backup.exists():
+                shutil.copy2(path,backup)
+                logging.getLogger(__name__).info('Merged %d duplicate graph records; original metadata backed up.',len(raw.get('edges',[]))-len(normalized['edges']))
         return normalized
     except (OSError, ValueError, TypeError): return normalize({})
 
