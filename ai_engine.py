@@ -11,7 +11,7 @@ from pathlib import Path
 
 def _clean_answer(text: str) -> str:
     """Accept a full Python file, optionally surrounded by a Markdown fence."""
-    match = re.search(r"```(?:python)?\s*\n(.*?)```", text, re.S | re.I)
+    match = re.search(r"```[^\n]*\n(.*?)```", text, re.S)
     return (match.group(1) if match else text).strip("\n") + "\n"
 
 
@@ -26,7 +26,7 @@ Target ({target_name}):
 ```{extension}
 {target}
 ```
-Constraint: {constraint}. Return ONLY the complete proposed target Python file, no explanation or markdown. Make it useful while honoring the constraint."""
+Constraint: {constraint}. Return ONLY the complete proposed target file in its original language, no explanation or markdown. Preserve Existing Code requires every original nonblank line in order; Append Only requires the original content as an exact prefix."""
     if not api_key.strip():
         raise ValueError("Enter an API key before running AI.")
     if provider == "Gemini":
@@ -49,6 +49,10 @@ Constraint: {constraint}. Return ONLY the complete proposed target Python file, 
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             answer = extractor(json.loads(response.read().decode()))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        message = "Rate limit or API quota reached." if exc.code == 429 else "API key was rejected or does not have access." if exc.code in {401, 403} else f"Provider returned HTTP {exc.code}."
+        raise ValueError(f"{message} {detail}") from exc
     except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError) as exc:
         raise ValueError(f"AI request failed: {exc}") from exc
     return _clean_answer(answer), "AI proposed a complete guarded target-file update."
@@ -62,6 +66,8 @@ def _nonblank_subsequence(old: list[str], new: list[str]) -> bool:
 
 
 def guard_update(path: Path, proposed: str, constraint: str) -> dict:
+    if constraint not in {"SUGGEST_ONLY", "APPEND_ONLY", "ADD_AND_REWRITE_NO_DELETE"}:
+        raise ValueError("Unknown constraint.")
     original = path.read_text(encoding="utf-8") if path.exists() else ""
     old, new = original.splitlines(), proposed.splitlines()
     diff = "\n".join(difflib.unified_diff(old, new, fromfile=path.name, tofile=path.name + " (proposed)", lineterm=""))

@@ -1,0 +1,127 @@
+"""Versioned graph storage, static local references, and safe workspace moves."""
+import ast
+import copy
+import json
+import os
+import re
+import tempfile
+import threading
+from pathlib import Path
+from fastapi import HTTPException
+
+LOCK = threading.RLock()
+IGNORED = {'.git', '.pytest_cache', '__pycache__', 'node_modules', '.venv', 'venv', 'dist', 'build', '.archflow_graph.json'}
+PORTS = {'top', 'bottom', 'left', 'right'}
+TYPES = {'python','javascript','html','css','backend','database','config','ai','broken','other'}
+
+def safe(folder, name, root=False):
+    if not isinstance(name, str) or Path(name).is_absolute() or '..' in Path(name).parts:
+        raise HTTPException(400, 'Use a relative workspace path without traversal.')
+    result = (folder / name).resolve()
+    if not result.is_relative_to(folder) or (result == folder and not root) or any(p in IGNORED or p.startswith('.archflow-') for p in Path(name).parts):
+        raise HTTPException(400, 'Protected or outside-workspace path.')
+    return result
+
+def kind(name):
+    return {'.py':'python','.js':'javascript','.mjs':'javascript','.ts':'javascript','.html':'html','.css':'css','.json':'config','.yaml':'config','.toml':'config','.sql':'database','.db':'database'}.get(Path(name).suffix.lower(),'other')
+
+def normalize(data):
+    result = {'version':2, 'revision':int(data.get('revision',0)), 'detected':bool(data.get('detected',False)), 'edges':[], 'collapsed':data.get('collapsed',[]), 'selected':data.get('selected'), 'view':data.get('view',{})}
+    seen=set()
+    for e in data.get('edges',[]):
+        if not isinstance(e,dict) or not isinstance(e.get('source'),str) or not isinstance(e.get('target'),str) or e['source']==e['target']: continue
+        edge={k:e[k] for k in ('source','target','reference') if k in e}
+        edge.update(source_port=e.get('source_port') if e.get('source_port') in PORTS else 'right', target_port=e.get('target_port') if e.get('target_port') in PORTS else 'left', type=e.get('type') if e.get('type') in TYPES else kind(e['source']), origin='auto' if e.get('origin')=='auto' else 'manual')
+        key=tuple(edge.get(k) for k in ('source','target','source_port','target_port','origin'))
+        if key not in seen: result['edges'].append(edge);seen.add(key)
+    return result
+
+def read(folder):
+    try: return normalize(json.loads((folder/'.archflow_graph.json').read_text(encoding='utf-8')))
+    except (OSError, ValueError, TypeError): return normalize({})
+
+def write(folder, data):
+    data=normalize(data);data['revision']+=1
+    fd,name=tempfile.mkstemp(prefix='.archflow-',dir=folder)
+    try:
+        with os.fdopen(fd,'w',encoding='utf-8') as out: json.dump(data,out,indent=2);out.flush();os.fsync(out.fileno())
+        os.replace(name,folder/'.archflow_graph.json')
+    finally:
+        if os.path.exists(name): os.unlink(name)
+    return data
+
+def scan(folder):
+    # Prune ignored directories before descending (unlike rglob filtering).
+    for base,dirs,files in os.walk(folder,followlinks=False):
+        dirs[:]=sorted(d for d in dirs if d not in IGNORED and not (Path(base)/d).is_symlink())
+        for name in dirs+sorted(files):
+            p=Path(base)/name
+            if name in IGNORED or name.startswith('.archflow-') or p.is_symlink(): continue
+            yield p
+
+def detect(folder):
+    paths={p.relative_to(folder).as_posix():p for p in scan(folder) if p.is_file()}
+    edges=[]
+    for name,p in paths.items():
+        if p.suffix.lower() not in {'.py','.js','.mjs','.ts','.html','.htm','.css'}: continue
+        text=p.read_text(encoding='utf-8',errors='replace');refs=[]
+        if p.suffix=='.py':
+            try: tree=ast.parse(text)
+            except SyntaxError: continue
+            for node in ast.walk(tree):
+                if isinstance(node,ast.Import): refs.extend((a.name.replace('.','/'),False) for a in node.names)
+                if isinstance(node,ast.ImportFrom):
+                    prefix=('/'.join(name.split('/')[:-node.level])+'/' if node.level else '')
+                    module=(node.module or '').replace('.','/')
+                    refs.extend((prefix+('/'.join(filter(None,[module,a.name]))),bool(node.level)) for a in node.names)
+                    if module: refs.append((prefix+module,bool(node.level)))
+        else:
+            patterns=[r'''(?:from\s*|import\s*|require\s*\(\s*)["']([^"']+)["']'''] if p.suffix in {'.js','.mjs','.ts'} else ([r'''(?:src|href)\s*=\s*["']([^"']+)["']'''] if p.suffix in {'.html','.htm'} else [r'''@import\s+(?:url\(\s*)?["']([^"']+)["']''',r'''url\(\s*["']?([^"')\s]+)'''])
+            refs.extend((r,True) for pattern in patterns for r in re.findall(pattern,text))
+        for ref,local in refs:
+            if re.match(r'^(?:[a-z]+:|//|#)',ref,re.I): continue
+            ref=ref.split('?')[0].split('#')[0]
+            base=(folder/ref.lstrip('/') if p.suffix=='.py' or ref.startswith('/') else p.parent/ref).resolve()
+            if not base.is_relative_to(folder): continue
+            candidates=[base,base.with_suffix('.py'),base/'__init__.py'] if p.suffix=='.py' else [base,*[Path(str(base)+s) for s in ('.js','.ts','.mjs','/index.js')]]
+            target=next((c.relative_to(folder).as_posix() for c in candidates if c.relative_to(folder).as_posix() in paths),None)
+            if not target:
+                # Bare packages are external, not fabricated local edges.
+                if not local or (p.suffix in {'.js','.mjs','.ts'} and not ref.startswith(('.', '/'))): continue
+                target=base.relative_to(folder).as_posix()
+            if target==name: continue
+            edges.append({'source':name,'target':target,'origin':'auto','type':kind(target) if target in paths else 'broken','reference':ref})
+    return normalize({'edges':edges})['edges']
+
+def refresh(folder, force=False):
+    graph=read(folder)
+    if force or not graph['detected']:
+        new=[e for e in graph['edges'] if e['origin']=='manual']+detect(folder)
+        changed = new != graph['edges'] or not graph['detected']
+        graph['detected']=True
+        if changed: graph['edges']=new;return write(folder,graph)
+    return graph
+
+def move(folder,source,destination):
+    with LOCK:
+        src=safe(folder,source);dest=safe(folder,destination,root=True)
+        if not src.exists() or not dest.is_dir(): raise HTTPException(400,'Source or destination does not exist.')
+        if src.is_dir() and dest.is_relative_to(src): raise HTTPException(400,'Cannot move a folder into itself or its descendants.')
+        target=dest/src.name
+        if target.exists(): raise HTTPException(409,'Destination exists; nothing was overwritten.')
+        old=src.relative_to(folder).as_posix();new=target.relative_to(folder).as_posix();before=read(folder)
+        def remap(value):
+            if isinstance(value,str): return new+value[len(old):] if value==old or value.startswith(old+'/') else value
+            if isinstance(value,list): return [remap(v) for v in value]
+            if isinstance(value,dict): return {remap(k):remap(v) for k,v in value.items()}
+            return value
+        updated=remap(copy.deepcopy(before))
+        try:
+            src.rename(target)
+            write(folder,updated)
+        except OSError as exc:
+            if target.exists() and not src.exists(): target.rename(src)
+            raise HTTPException(500,'Move failed; original location restored: '+str(exc)) from exc
+        # Preserve remapped auto edges until the client reloads; detection also exposes broken old imports.
+        warnings=['Imports and relative references may require updates. Source code was not rewritten.']
+        return {'ok':True,'source':old,'target':new,'graph':read(folder),'warnings':warnings}
