@@ -42,6 +42,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator('.node[data-name="a.py"] .label').click();assert page.locator('#editorModal').is_hidden()
             page.locator('.node[data-name="a.py"] .label').dblclick();assert page.locator('.details-panel').first.is_visible();assert 'a.py' in page.locator('.details-panel').first.inner_text()
             page.locator('.details-panel').first.get_by_role('button',name='Open in editor',exact=True).click();assert page.locator('#editorModal').is_visible();page.locator('#closeEditor').click()
+            assert page.locator('#code').evaluate('(e)=>e.selectionStart===0&&e.scrollTop===0&&e.scrollLeft===0')
             page.keyboard.press('Escape');page.locator('.node[data-name="a.py"]').focus();page.keyboard.press('Enter');assert page.locator('.details-panel').first.is_visible()
             page.keyboard.press('Escape');page.keyboard.press('Control+k');assert page.locator('.command-palette').is_visible();page.keyboard.press('Escape')
             # Validate discovery flows with mocked HTTP: no live provider calls.
