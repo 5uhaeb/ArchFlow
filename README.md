@@ -20,6 +20,14 @@ The local server binds to 127.0.0.1:8765. Native window failures fall back to yo
 
 ## Architecture workspace
 
+UI controls have changed: single-click selects; double-click or Enter opens
+Details, where Open in editor launches the file editor. Right-click wires for
+actions. Delete/Backspace removes a selected manual connection or suppresses a
+detected one. Ctrl/Cmd+Z undoes connection edits; Ctrl+Shift+Z redoes them.
+AI opens the three-action panel; Enable AI now makes a provider validation
+request. Ctrl/Cmd+K opens Commands and ? shows Help. About identifies this build.
+See [UI pass scope and limitations](docs/UI_PROGRESS.md).
+
 The canvas follows the architecture-board reference: a centered Workspace node feeds folder columns across a shared gray bus; each column stacks its files along a left hierarchy trunk. Nested folders retain indented subtrees within their column. Rounded nodes and four port dots share extension colors (Python blue, JSON pink, HTML orange, CSS purple, JavaScript gold). New users start in the dark theme; existing theme preferences remain respected. New workspaces fit automatically, while saved viewports are restored.
 
 Folders form a centered, top-down tree. Use the chevron to collapse a folder; its functional connections remain stored. Nodes have four ports: drag any port to another node's port (24 world-unit snapping). A click pins the connection inspector; hover reveals incoming/outgoing relationships without expanding folders. Select a relationship to reveal its node. Delete/Backspace or right-click removes a selected functional wire. Ordinary structural branches cannot be removed.

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0-dev — UI reliability
+
+- Stable canonical edge IDs; duplicate origin/port records merge. Original
+  duplicate metadata is backed up before migration; schema v2 stays readable.
+- Selection and dimming use edge IDs, manual deletion/detected suppression,
+  bounded connection undo/redo, context menu, double-click/Enter Details.
+- AI validation, explanation and reviewable connection suggestions; explicit
+  preview Apply/Discard; command palette, Help, status/log toggle and About.
+- Single-click selects rather than opening the editor; use Details → Open in
+  editor. Optional browser tests no longer execute during pytest collection.
+- Windows CRLF source buffers no longer appear modified immediately after opening.
+- File-action undo/redo and other unfinished scope is listed in docs/UI_PROGRESS.md.
+
 ## Unreleased — hardening foundation
 
 - Audit and failing regression establish that a blank workspace path resolved
