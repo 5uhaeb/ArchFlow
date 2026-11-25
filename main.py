@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from ai_engine import ask_ai, guard_update
 import workspace_graph as wg
+from workspace_safety import text
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI()
@@ -23,15 +24,34 @@ class Edge(BaseModel): folder: str; source: str; target: str
 class AIJob(Edge): api_key: str; model: str; constraint: str; provider: str = "OpenAI"; base_url: str = ""
 
 def project(path: str) -> Path:
+    if not path.strip(): raise HTTPException(400, "Open a folder or create a workspace first.")
     folder = Path(path).expanduser().resolve()
     if not folder.is_dir(): raise HTTPException(400, "Choose an existing folder.")
+    if folder == ROOT or folder == Path(folder.anchor) or folder == Path.home():
+        raise HTTPException(400, "Choose a dedicated project folder, not the app, home or filesystem root.")
     return folder
+
+class NewWorkspace(BaseModel):
+    parent: str
+    name: str
+
+@app.post('/api/create-workspace')
+def create_workspace(body: NewWorkspace):
+    if not body.parent.strip() or not body.name.strip() or Path(body.name).name != body.name or body.name in {'.','..'} or any(c in body.name for c in '\\/:'):
+        raise HTTPException(400, 'Choose a parent and a single folder name.')
+    parent = Path(body.parent).expanduser().resolve()
+    if not parent.is_dir(): raise HTTPException(400, 'Parent folder does not exist.')
+    target = parent / body.name
+    try: target.mkdir(exist_ok=False)
+    except FileExistsError: raise HTTPException(409, 'Workspace already exists. Open it instead.')
+    return {'path': str(target)}
 
 def safe_name(folder: Path, name: str) -> Path:
     return wg.safe(folder, name)
 
 def diagnose(path: Path, content: str | None = None) -> dict:
-    text = path.read_text(encoding="utf-8", errors="replace") if content is None else content
+    try: text = globals()['text'](path) if content is None else content
+    except HTTPException as exc: return {'status':'warning','diag':str(exc.detail)}
     suffix = path.suffix.lower()
     try:
         if suffix == ".py": ast.parse(text)
@@ -70,7 +90,7 @@ def files(body: Folder):
     with wg.LOCK: graph = wg.refresh(folder)
     return {"files": sorted(entries, key=lambda x: (not x.get("folder", False), x["name"].lower())), "graph": graph}
 @app.post("/api/read")
-def read(body: FileEdit): return {"content": safe_name(project(body.folder), body.name).read_text(encoding="utf-8")}
+def read(body: FileEdit): return {"content": text(safe_name(project(body.folder), body.name))}
 @app.post("/api/save")
 def save(body: FileEdit):
     path = safe_name(project(body.folder), body.name); path.parent.mkdir(parents=True, exist_ok=True); path.write_text(body.content, encoding="utf-8")

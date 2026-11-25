@@ -8,9 +8,10 @@ import tempfile
 import threading
 from pathlib import Path
 from fastapi import HTTPException
+from workspace_safety import MAX_ENTRIES, text
 
 LOCK = threading.RLock()
-IGNORED = {'.git', '.pytest_cache', '__pycache__', 'node_modules', '.venv', 'venv', 'dist', 'build', '.archflow_graph.json'}
+IGNORED = {'.git', '.pytest_cache', '__pycache__', 'node_modules', '.venv', 'venv', 'dist', 'build', '.idea', '.vscode', '.DS_Store', '.archflow_graph.json', '.archflow_backups'}
 PORTS = {'top', 'bottom', 'left', 'right'}
 TYPES = {'python','javascript','html','css','backend','database','config','ai','broken','other'}
 
@@ -51,12 +52,16 @@ def write(folder, data):
     return data
 
 def scan(folder):
+    count = 0
     # Prune ignored directories before descending (unlike rglob filtering).
     for base,dirs,files in os.walk(folder,followlinks=False):
         dirs[:]=sorted(d for d in dirs if d not in IGNORED and not (Path(base)/d).is_symlink())
         for name in dirs+sorted(files):
             p=Path(base)/name
             if name in IGNORED or name.startswith('.archflow-') or p.is_symlink(): continue
+            if p.suffix.lower() in {'.pyc','.exe','.dll','.png','.jpg','.zip','.pdf'}: continue
+            count += 1
+            if count > MAX_ENTRIES: return
             yield p
 
 def detect(folder):
@@ -64,9 +69,11 @@ def detect(folder):
     edges=[]
     for name,p in paths.items():
         if p.suffix.lower() not in {'.py','.js','.mjs','.ts','.html','.htm','.css'}: continue
-        text=p.read_text(encoding='utf-8',errors='replace');refs=[]
+        try: content=text(p)
+        except HTTPException: continue
+        refs=[]
         if p.suffix=='.py':
-            try: tree=ast.parse(text)
+            try: tree=ast.parse(content)
             except SyntaxError: continue
             for node in ast.walk(tree):
                 if isinstance(node,ast.Import): refs.extend((a.name.replace('.','/'),False) for a in node.names)
@@ -77,7 +84,7 @@ def detect(folder):
                     if module: refs.append((prefix+module,bool(node.level)))
         else:
             patterns=[r'''(?:from\s*|import\s*|require\s*\(\s*)["']([^"']+)["']'''] if p.suffix in {'.js','.mjs','.ts'} else ([r'''(?:src|href)\s*=\s*["']([^"']+)["']'''] if p.suffix in {'.html','.htm'} else [r'''@import\s+(?:url\(\s*)?["']([^"']+)["']''',r'''url\(\s*["']?([^"')\s]+)'''])
-            refs.extend((r,True) for pattern in patterns for r in re.findall(pattern,text))
+            refs.extend((r,True) for pattern in patterns for r in re.findall(pattern,content))
         for ref,local in refs:
             if re.match(r'^(?:[a-z]+:|//|#)',ref,re.I): continue
             ref=ref.split('?')[0].split('#')[0]
