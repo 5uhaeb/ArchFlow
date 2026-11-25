@@ -235,6 +235,15 @@ def ai(body: AIJob):
     except ValueError as exc: raise HTTPException(400, str(exc))
 
 def run(): uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
+
+class CodexJob(Edge):
+    constraint: str = 'ADD_AND_REWRITE_NO_DELETE'
+    instructions: str = ''
+
+@app.post('/api/codex')
+def codex_generate(body: CodexJob):
+    return ai(AIJob(**body.model_dump(), api_key='', model='gpt-6.1-terra', provider='CodexLocal'))
+
 @app.post("/api/pick-folder")
 def pick_folder():
     try:

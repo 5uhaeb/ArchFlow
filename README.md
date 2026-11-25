@@ -46,6 +46,8 @@ Graph schema v2 stores typed manual/auto edges, port sides, collapsed paths, sel
 
 ## Verification
 
+For the VS Code Codex login instead of an API key, choose **Local Codex (VS Code)**, then **Enable AI**. This uses `gpt-6.1-terra` through the extension's bundled CLI. See [local Codex setup and API](docs/LOCAL_CODEX.md).
+
 ```sh
 python -m py_compile main.py ai_engine.py workspace_graph.py
 python -m unittest test_workspace -v

@@ -28,12 +28,15 @@ Target ({target_name}):
 {target}
 ```
 Constraint: {constraint}. Return ONLY the complete proposed target file in its original language, no explanation or markdown. Preserve Existing Code requires every original nonblank line in order; Append Only requires the original content as an exact prefix."""
-    if not api_key.strip():
+    if provider != 'CodexLocal' and not api_key.strip():
         raise ValueError("Enter an API key before running AI.")
     if instruction is not None:
         prompt = instruction + '\nInput:\n' + source
     elif request_notes.strip():
         prompt += '\nUser task (obey the constraint above):\n' + request_notes[:8000]
+    if provider == 'CodexLocal':
+        from codex_local import generate
+        return _clean_answer(generate(prompt, model)), 'Local Codex proposed a guarded update using GPT-6.1 Terra.'
     payload: dict[str, Any]
     if provider == "Gemini":
         url = "https://generativelanguage.googleapis.com/v1beta/models/" + model.removeprefix('models/') + ":generateContent"
