@@ -3,7 +3,9 @@ import ast
 import copy
 import json
 import os
+import posixpath
 import re
+import shutil
 import tempfile
 import threading
 from pathlib import Path
@@ -31,17 +33,30 @@ def kind(name):
 
 def normalize(data):
     result = {'version':2, 'revision':int(data.get('revision',0)), 'detected':bool(data.get('detected',False)), 'edges':[], 'collapsed':data.get('collapsed',[]), 'selected':data.get('selected'), 'view':data.get('view',{})}
-    seen=set()
+    seen={}
     for e in data.get('edges',[]):
         if not isinstance(e,dict) or not isinstance(e.get('source'),str) or not isinstance(e.get('target'),str) or e['source']==e['target']: continue
         edge={k:e[k] for k in ('source','target','reference') if k in e}
-        edge.update(source_port=e.get('source_port') if e.get('source_port') in PORTS else 'right', target_port=e.get('target_port') if e.get('target_port') in PORTS else 'left', type=e.get('type') if e.get('type') in TYPES else kind(e['source']), origin='auto' if e.get('origin')=='auto' else 'manual')
-        key=tuple(edge.get(k) for k in ('source','target','source_port','target_port','origin'))
-        if key not in seen: result['edges'].append(edge);seen.add(key)
+        edge['source']=posixpath.normpath(edge['source'].replace('\\','/'))
+        edge['target']=posixpath.normpath(edge['target'].replace('\\','/'))
+        edge.update(source_port=e.get('source_port') if e.get('source_port') in PORTS else 'right', target_port=e.get('target_port') if e.get('target_port') in PORTS else 'left', type=e.get('type') if e.get('type') in TYPES else kind(e['source']), origin=e.get('origin') if e.get('origin') in {'auto','both'} else 'manual', suppressed=bool(e.get('suppressed',False)))
+        key=json.dumps([edge['source'],edge['target'],edge['type']],ensure_ascii=False,separators=(',',':'))
+        edge['id']=key
+        if key in seen:
+            previous=seen[key]
+            if previous['origin']!=edge['origin']: previous['origin']='both'
+            previous['suppressed']=previous['suppressed'] or edge['suppressed']
+        else: seen[key]=edge
+    result['edges']=list(seen.values())
     return result
 
 def read(folder):
-    try: return normalize(json.loads((folder/'.archflow_graph.json').read_text(encoding='utf-8')))
+    try:
+        path=folder/'.archflow_graph.json';raw=json.loads(path.read_text(encoding='utf-8'));normalized=normalize(raw)
+        if len(normalized['edges'])<len(raw.get('edges',[])):
+            backup=folder/'.archflow_graph.v2-before-merge.json'
+            if not backup.exists(): shutil.copy2(path,backup)
+        return normalized
     except (OSError, ValueError, TypeError): return normalize({})
 
 def write(folder, data):
@@ -65,7 +80,7 @@ def scan(folder):
         for name in dirs+sorted(files):
             p=Path(base)/name
             if rules.match_file(p.relative_to(folder).as_posix()): continue
-            if name in IGNORED or name.startswith('.archflow-') or p.is_symlink(): continue
+            if name in IGNORED or name.startswith(('.archflow-','.archflow_graph')) or p.is_symlink(): continue
             if p.suffix.lower() in {'.pyc','.exe','.dll','.png','.jpg','.zip','.pdf'}: continue
             count += 1
             if count > MAX_ENTRIES: return
@@ -110,7 +125,9 @@ def detect(folder):
 def refresh(folder, force=False):
     graph=read(folder)
     if force or not graph['detected']:
-        new=[e for e in graph['edges'] if e['origin']=='manual']+detect(folder)
+        manual=[{**e,'origin':'manual'} for e in graph['edges'] if e['origin'] in {'manual','both'}]
+        suppressed={e['id'] for e in graph['edges'] if e.get('suppressed')}
+        new=normalize({'edges':manual+[{**e,'suppressed':e['id'] in suppressed} for e in detect(folder)]})['edges']
         changed = new != graph['edges'] or not graph['detected']
         graph['detected']=True
         if changed: graph['edges']=new;return write(folder,graph)

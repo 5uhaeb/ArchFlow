@@ -134,6 +134,10 @@ def files(body: Folder):
         if any(part in ignored for part in relative.parts) or not path.resolve().is_relative_to(folder): continue
         if path.is_file(): entries.append({"name": relative.as_posix(), **diagnose(path)})
         elif path.is_dir(): entries.append({"name": relative.as_posix(), "folder": True, "status": "ok", "diag": "Folder"})
+    for entry in entries:
+        try:
+            stat=(folder/entry['name']).stat();entry['size']=stat.st_size;entry['modified']=stat.st_mtime
+        except OSError: pass
     with wg.LOCK: graph = wg.refresh(folder)
     return {"files": sorted(entries, key=lambda x: (not x.get("folder", False), x["name"].lower())), "graph": graph}
 @app.post("/api/read")
